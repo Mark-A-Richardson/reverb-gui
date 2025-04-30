@@ -3,7 +3,8 @@
 Hosts the primary user interface components like drag-drop area, settings, progress.
 """
 
-from PySide6.QtWidgets import QMainWindow
+# --- Imports (Added QWidget, QVBoxLayout, QPlainTextEdit) ---
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit
 from PySide6.QtCore import QThreadPool
 from .widgets.drop_zone import DropZone
 from .workers.transcription_worker import TranscriptionWorker, WorkerSignals
@@ -24,9 +25,30 @@ class MainWindow(QMainWindow):
         self.thread_pool = QThreadPool()
         print(f"Multithreading with maximum {self.thread_pool.maxThreadCount()} threads")
 
-        # Use the custom DropZone widget as the central widget
+        # --- Layout Setup (Modified) ---
+        # Create a main container widget and layout
+        main_container = QWidget()
+        layout = QVBoxLayout(main_container)
+
+        # Create and add the DropZone
         self.drop_zone = DropZone()
-        self.setCentralWidget(self.drop_zone)
+        layout.addWidget(self.drop_zone, stretch=1) # Give it some stretch factor
+
+        # Create and add the Transcript Display (New)
+        self.transcript_display = QPlainTextEdit()
+        self.transcript_display.setPlaceholderText("Full transcript will appear here...")
+        self.transcript_display.setReadOnly(True)
+        layout.addWidget(self.transcript_display, stretch=2) # More stretch factor
+
+        # Create and add the Diarization Display (New)
+        self.diarization_display = QPlainTextEdit()
+        self.diarization_display.setPlaceholderText("Speaker segments will appear here...")
+        self.diarization_display.setReadOnly(True)
+        layout.addWidget(self.diarization_display, stretch=1) # Less stretch factor
+
+        # Set the main container as the central widget
+        self.setCentralWidget(main_container)
+        # --- End Layout Setup ---
 
         # Connect the signal from the drop zone to our handler slot
         self.drop_zone.fileDropped.connect(self._handle_file_drop)
@@ -38,6 +60,11 @@ class MainWindow(QMainWindow):
         """
         print(f"MainWindow: File drop received: {file_path}")
         print("MainWindow: Starting transcription worker...")
+
+        # --- Clear previous results (Added) ---
+        self.transcript_display.clear()
+        self.diarization_display.clear()
+        # --- End Clear ---
 
         # Disable drop zone while processing
         self.drop_zone.setEnabled(False)
@@ -57,7 +84,7 @@ class MainWindow(QMainWindow):
         self.thread_pool.start(worker)
 
     def _on_transcription_result(self, result_data: Tuple[str, List[Tuple[float, float, str]]]) -> None:
-        """Handles the successful result from the transcription worker.
+        """Handles the successful result from the transcription worker. (Modified)
 
         Args:
             result_data: A tuple containing (full_text, diarization_segments).
@@ -68,20 +95,29 @@ class MainWindow(QMainWindow):
         print(f"  Full Text Length: {len(full_text)}")
         print(f"  Diarization Segments: {len(diarization_segments)}")
 
-        # Placeholder: Update GUI elements here (e.g., text area, segment list)
-        # Example: Displaying the first few segments
-        # self.results_text_area.setPlainText(full_text)
-        # self.speaker_list_widget.clear()
-        # for start, end, speaker in diarization_segments[:10]: # Show first 10
-        #     self.speaker_list_widget.addItem(f"[{start:.2f}-{end:.2f}] {speaker}")
+        # --- Update GUI elements (Modified) ---
+        self.transcript_display.setPlainText(full_text)
+
+        # Format diarization segments for display
+        diarization_text_lines = []
+        if diarization_segments:
+            for start, end, speaker in diarization_segments:
+                diarization_text_lines.append(f"[{start:.2f}s -> {end:.2f}s] {speaker}")
+        else:
+            diarization_text_lines.append("No speaker segments identified.")
+
+        self.diarization_display.setPlainText("\n".join(diarization_text_lines))
+        # --- End Update GUI ---
 
     def _on_transcription_error(self, error_details: Tuple[Any, Any, str]) -> None:
         """Handles errors reported by the transcription worker."""
         exc_type, exc_value, tb_str = error_details
         print(f"MainWindow: Transcription Error! Type: {exc_type.__name__}, Value: {exc_value}")
         print(f"Traceback:\n{tb_str}")
-        # TODO: Show error message dialog to the user
-        self.drop_zone.setText("Error during processing. Drop another file.")  # Update text on error
+        # Show error message dialog to the user (Consider using QMessageBox)
+        self.transcript_display.setPlaceholderText("An error occurred during transcription.")
+        self.diarization_display.setPlaceholderText(f"Error: {exc_value}")
+        self.drop_zone.setText("Error during processing. Drop another file.") # Update text on error
 
     def _on_transcription_finished(self) -> None:
         """Handles the finished signal from the transcription worker."""
@@ -94,3 +130,4 @@ class MainWindow(QMainWindow):
 
     # TODO: Add methods for settings panel integration
     # TODO: Add methods for progress bar updates
+    
