@@ -5,7 +5,7 @@ import os
 from itertools import groupby, chain
 from pathlib import Path
 from math import ceil
-from typing import Generator, List, Tuple
+from typing import Generator, List, Tuple, Optional, Any
 import shutil
 import yaml
 
@@ -189,8 +189,8 @@ class ReverbASR:
         reverse_weight: float = 0.0,
         blank_penalty: float = 0.0,
         length_penalty: float = 0.0,
-        timings_adjustment: float = 230
-    ) -> list[str]:
+        timings_adjustment: float = 230,
+    ) -> list[Any]:
         """Transcribe an audio using a list of decoding modes
         accepted by the Reverb model.
 
@@ -263,8 +263,8 @@ class ReverbASR:
         reverse_weight: float = 0.0,
         blank_penalty: float = 0.0,
         length_penalty: float = 0.0,
-        timings_adjustment: float = 230
-    ) -> str:
+        timings_adjustment: float = 230,
+    ) -> Any:
         """Transcribe an audio in one of the decoding modes
         accepted by the Reverb model.
 
@@ -322,7 +322,8 @@ def get_output(
 
 
 def load_model(
-    model: str
+    model: str,
+    gpu: Optional[int] = None
 ):
     """Loads a reverb model. If "model" points to a path that exists,
     tries to load a model using those files at "model".
@@ -330,8 +331,29 @@ def load_model(
     """
     if Path(model).exists():
         model_dir = Path(model)
-        config_path = model_dir / "config.yaml"
-        checkpoint_path = list(model_dir.glob("*.pt"))[0]
+        # Check for Hugging Face snapshot structure first
+        snapshot_dir = next(model_dir.glob("snapshots/*"), None)
+        if snapshot_dir and snapshot_dir.is_dir():
+            config_path = snapshot_dir / "config.yaml"
+            checkpoint_path_candidates = list(snapshot_dir.glob("*.pt"))
+            if config_path.exists() and checkpoint_path_candidates:
+                checkpoint_path = checkpoint_path_candidates[0]
+                print(f"Found model files in snapshot directory: {snapshot_dir}")
+            else:
+                # Fallback to checking the top-level directory if files not in snapshot
+                config_path = model_dir / "config.yaml"
+                checkpoint_path_candidates = list(model_dir.glob("*.pt"))
+                if not config_path.exists() or not checkpoint_path_candidates:
+                    raise FileNotFoundError(f"Could not find config.yaml or *.pt in {model_dir} or its snapshot subdir.")
+                checkpoint_path = checkpoint_path_candidates[0]
+        else:
+            # Original logic: Check top-level directory if no snapshot dir found
+            config_path = model_dir / "config.yaml"
+            checkpoint_path_candidates = list(model_dir.glob("*.pt"))
+            if not config_path.exists() or not checkpoint_path_candidates:
+                 raise FileNotFoundError(f"Could not find config.yaml or *.pt in {model_dir}.")
+            checkpoint_path = checkpoint_path_candidates[0]
+
     elif model in _MODELS:
         model_dir = CACHED_MODELS_DIR / model
         config_path = model_dir / "config.yaml"
@@ -353,7 +375,8 @@ def load_model(
     logging.info(f"Loading the model with {config_path = } and {checkpoint_path = }")
     return ReverbASR(
         str(config_path),
-        str(checkpoint_path)
+        str(checkpoint_path),
+        gpu=gpu
     )
 
 
