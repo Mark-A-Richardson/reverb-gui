@@ -18,7 +18,7 @@ classifiers  = [
 ]
 packages = [
   { include = "wenet", from = "asr" },
-  # { include = "reverb_gui" },
+  { include = "reverb_gui" },
 ]
 
 [tool.poetry.dependencies]
@@ -44,4 +44,4 @@ pytest-qt = "^4.4.0"
 
 [tool.poetry.scripts]
 reverb     = "wenet.bin.recognize_wav:main"
-# reverb-gui = "reverb_gui.main:launch_gui"
+reverb-gui = "reverb_gui.main:launch_gui"
