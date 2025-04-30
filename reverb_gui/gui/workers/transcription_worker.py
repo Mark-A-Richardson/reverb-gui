@@ -7,9 +7,9 @@ from typing import List, Tuple, Any
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
-# Assuming AlignedLine is defined correctly in engine.py
+# Assuming transcribe is defined correctly in engine.py
 # Adjust the import path based on your final structure if needed
-from ...pipeline.engine import transcribe, AlignedLine
+from ...pipeline.engine import transcribe
 
 
 class WorkerSignals(QObject):
@@ -25,14 +25,14 @@ class WorkerSignals(QObject):
         `tuple` (exctype, value, traceback.format_exc())
 
     result
-        `list` data returned from processing, List[AlignedLine]
+        `tuple` data returned from processing, Tuple[str, List[Tuple[float, float, str]]]
 
     progress
         `int` indicating % progress (optional, for future use)
     """
     finished = Signal()
     error = Signal(tuple)
-    result = Signal(list) # Emits List[AlignedLine]
+    result = Signal(tuple) # Emits Tuple[str, List[Tuple[float, float, str]]]
     # progress = Signal(int) # Placeholder for future progress reporting
 
 
@@ -53,7 +53,7 @@ class TranscriptionWorker(QRunnable):
     def run(self) -> None:
         """Execute the transcription task."""
         try:
-            result_data: List[AlignedLine] = transcribe(self.input_path)
+            result_data: Tuple[str, List[Tuple[float, float, str]]] = transcribe(self.input_path)
         except Exception as e:
             # Capture traceback details
             exc_type, exc_value, tb = sys.exc_info()

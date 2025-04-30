@@ -183,4 +183,4 @@ logs/
 .windsurfrules
 
 # Ignore downloaded ASR/Diarization models
-data/models/
+models/

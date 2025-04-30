@@ -34,17 +34,18 @@ class MainWindow(QMainWindow):
         self.drop_zone = DropZone()
         layout.addWidget(self.drop_zone, stretch=1) # Give it some stretch factor
 
-        # Create and add the Transcript Display (New)
+        # Create and add the Transcript Display (Repurposed for unified output)
         self.transcript_display = QPlainTextEdit()
-        self.transcript_display.setPlaceholderText("Full transcript will appear here...")
+        self.transcript_display.setPlaceholderText("Speaker-assigned transcript will appear here...") # Updated placeholder
         self.transcript_display.setReadOnly(True)
-        layout.addWidget(self.transcript_display, stretch=2) # More stretch factor
+        layout.addWidget(self.transcript_display, stretch=3) # Increased stretch factor
 
-        # Create and add the Diarization Display (New)
+        # Create and add the Diarization Display (Now hidden)
         self.diarization_display = QPlainTextEdit()
         self.diarization_display.setPlaceholderText("Speaker segments will appear here...")
         self.diarization_display.setReadOnly(True)
-        layout.addWidget(self.diarization_display, stretch=1) # Less stretch factor
+        self.diarization_display.setVisible(False) # Hide this widget
+        layout.addWidget(self.diarization_display, stretch=0) # No stretch
 
         # Set the main container as the central widget
         self.setCentralWidget(main_container)
@@ -83,30 +84,58 @@ class MainWindow(QMainWindow):
         # Execute the worker in the thread pool
         self.thread_pool.start(worker)
 
-    def _on_transcription_result(self, result_data: Tuple[str, List[Tuple[float, float, str]]]) -> None:
+    def _on_transcription_result(self, result_data: List[Tuple[float, float, str, str]]) -> None: # Updated type hint
         """Handles the successful result from the transcription worker. (Modified)
 
         Args:
-            result_data: A tuple containing (full_text, diarization_segments).
-                         diarization_segments is List[Tuple[start, end, speaker]].
+            result_data: A list of tuples, where each tuple is
+                         (start_time, end_time, speaker_label, word_text).
         """
-        full_text, diarization_segments = result_data
-        print("MainWindow: Received transcription result.")
-        print(f"  Full Text Length: {len(full_text)}")
-        print(f"  Diarization Segments: {len(diarization_segments)}")
+        unified_transcript = result_data # Rename for clarity
+        print("MainWindow: Received unified transcription result.")
+        print(f"  Total Word Segments: {len(unified_transcript)}")
 
-        # --- Update GUI elements (Modified) ---
-        self.transcript_display.setPlainText(full_text)
+        # --- Format and Update GUI elements (Modified) ---
+        self.transcript_display.clear()
+        self.diarization_display.clear() # Clear even if hidden
 
-        # Format diarization segments for display
-        diarization_text_lines = []
-        if diarization_segments:
-            for start, end, speaker in diarization_segments:
-                diarization_text_lines.append(f"[{start:.2f}s -> {end:.2f}s] {speaker}")
-        else:
-            diarization_text_lines.append("No speaker segments identified.")
+        if not unified_transcript:
+            self.transcript_display.setPlainText("No transcription results returned.")
+            return
 
-        self.diarization_display.setPlainText("\n".join(diarization_text_lines))
+        # Group consecutive words by the same speaker
+        formatted_lines = []
+        current_speaker = None
+        current_line = ""
+        line_start_time = -1.0
+        line_end_time = -1.0
+
+        for start, end, speaker, word in unified_transcript:
+            # Strip potential whitespace/special tokens if needed
+            word = word.strip()
+            if not word: # Skip empty tokens if any
+                continue
+
+            if speaker != current_speaker:
+                # Finalize previous line if it exists
+                if current_line:
+                    formatted_lines.append(f"{current_speaker} [{line_start_time:.2f}s - {line_end_time:.2f}s]: {current_line}")
+
+                # Start new line
+                current_speaker = speaker
+                current_line = word
+                line_start_time = start
+                line_end_time = end
+            else:
+                # Append word to current line
+                current_line += f" {word}"
+                line_end_time = max(line_end_time, end) # Update end time
+
+        # Add the last accumulated line
+        if current_line:
+            formatted_lines.append(f"{current_speaker} [{line_start_time:.2f}s - {line_end_time:.2f}s]: {current_line}")
+
+        self.transcript_display.setPlainText("\n".join(formatted_lines))
         # --- End Update GUI ---
 
     def _on_transcription_error(self, error_details: Tuple[Any, Any, str]) -> None:
@@ -115,8 +144,9 @@ class MainWindow(QMainWindow):
         print(f"MainWindow: Transcription Error! Type: {exc_type.__name__}, Value: {exc_value}")
         print(f"Traceback:\n{tb_str}")
         # Show error message dialog to the user (Consider using QMessageBox)
-        self.transcript_display.setPlaceholderText("An error occurred during transcription.")
-        self.diarization_display.setPlaceholderText(f"Error: {exc_value}")
+        error_message = f"An error occurred during transcription:\nType: {exc_type.__name__}\nDetails: {exc_value}"
+        self.transcript_display.setPlainText(error_message) # Display error in main area
+        self.diarization_display.clear() # Clear hidden area too
         self.drop_zone.setText("Error during processing. Drop another file.") # Update text on error
 
     def _on_transcription_finished(self) -> None:
@@ -130,4 +160,3 @@ class MainWindow(QMainWindow):
 
     # TODO: Add methods for settings panel integration
     # TODO: Add methods for progress bar updates
-    
