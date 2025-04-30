@@ -7,7 +7,6 @@ from PySide6.QtWidgets import QMainWindow
 from PySide6.QtCore import QThreadPool
 from .widgets.drop_zone import DropZone
 from .workers.transcription_worker import TranscriptionWorker, WorkerSignals
-from ..pipeline.engine import AlignedLine
 import pathlib
 from typing import List, Tuple, Any
 
@@ -57,13 +56,24 @@ class MainWindow(QMainWindow):
         # Execute the worker in the thread pool
         self.thread_pool.start(worker)
 
-    def _on_transcription_result(self, result: List[AlignedLine]) -> None:
-        """Handles the successful result from the transcription worker."""
-        print("MainWindow: Transcription successful!")
-        # For now, just print the result lines
-        for line in result:
-            print(f"  [{line.start_time:.2f}s - {line.end_time:.2f}s] {line.speaker or 'UNKNOWN'}: {line.text}")
-        # TODO: Display results in the GUI (e.g., text area)
+    def _on_transcription_result(self, result_data: Tuple[str, List[Tuple[float, float, str]]]) -> None:
+        """Handles the successful result from the transcription worker.
+
+        Args:
+            result_data: A tuple containing (full_text, diarization_segments).
+                         diarization_segments is List[Tuple[start, end, speaker]].
+        """
+        full_text, diarization_segments = result_data
+        print("MainWindow: Received transcription result.")
+        print(f"  Full Text Length: {len(full_text)}")
+        print(f"  Diarization Segments: {len(diarization_segments)}")
+
+        # Placeholder: Update GUI elements here (e.g., text area, segment list)
+        # Example: Displaying the first few segments
+        # self.results_text_area.setPlainText(full_text)
+        # self.speaker_list_widget.clear()
+        # for start, end, speaker in diarization_segments[:10]: # Show first 10
+        #     self.speaker_list_widget.addItem(f"[{start:.2f}-{end:.2f}] {speaker}")
 
     def _on_transcription_error(self, error_details: Tuple[Any, Any, str]) -> None:
         """Handles errors reported by the transcription worker."""

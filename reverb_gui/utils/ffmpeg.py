@@ -96,7 +96,7 @@ def convert_to_wav(
     print(f"Running FFmpeg command: {' '.join(command)}")
     try:
         # Using subprocess.run for simplicity; use Popen for progress later
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        subprocess.run(command, check=True, capture_output=True, text=True)
         print(f"FFmpeg conversion successful: {output_path}")
         # print(f"FFmpeg stdout:\n{result.stdout}") # Usually empty with -loglevel error
         # print(f"FFmpeg stderr:\n{result.stderr}") # Contains errors if any
@@ -127,7 +127,7 @@ if __name__ == "__main__":
         # Create a dummy input file for testing
         dummy_input = pathlib.Path("dummy_input.txt")
         dummy_input.touch()
-        print(f"\nTesting conversion (will fail as input is not audio):")
+        print("\nTesting conversion (will fail as input is not audio):")
         try:
             # Test with temporary directory
             wav_path_temp = convert_to_wav(dummy_input)

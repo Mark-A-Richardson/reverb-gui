@@ -2,10 +2,10 @@
 
 import os
 import pathlib
-from typing import List, Optional
+from typing import Optional
 
 import dotenv
-from huggingface_hub import HfApi, hf_hub_download, snapshot_download
+from huggingface_hub import snapshot_download
 from huggingface_hub.utils import HfHubHTTPError, LocalEntryNotFoundError
 
 # Environment variable names
@@ -138,7 +138,7 @@ def download_model(
         print(f"HTTP Error downloading '{model_id}': {e}")
         if "authentication is required" in str(e).lower():
             print("  -> This model may require a Hugging Face Hub token.")
-            print(f"  -> Please ensure HUGGING_FACE_HUB_TOKEN is set correctly in your .env file.")
+            print("  -> Please ensure HUGGING_FACE_HUB_TOKEN is set correctly in your .env file.")
         elif "Invalid username or password" in str(e):
              print("  -> Invalid Hugging Face Hub token provided.")
         return False
