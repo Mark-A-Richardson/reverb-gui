@@ -19,7 +19,7 @@ from pyannote.audio import Pipeline as DiarizationPipeline
 
 # --- Utility Imports ---
 from ..utils.ffmpeg import convert_to_wav
-from ..utils.model_downloader import _get_hf_token, ensure_models_are_downloaded
+from ..utils.model_downloader import _get_hf_token
 # --- Hugging Face Hub utility for snapshot path ---
 
 # --- Constants ---
@@ -45,24 +45,22 @@ _cached_models: Dict[str, Any] = {}
 _models_loaded = False
 # _models_dir: Optional[pathlib.Path] = None # Let's get it dynamically
 
-def _load_models_if_needed() -> None:
-    """Loads ASR and Diarization models into cache if not already loaded."""
+def _load_models_if_needed(models_dir: Path) -> None:
+    """Loads ASR and Diarization models into cache if not already loaded.
+
+    Args:
+        models_dir: The verified path to the directory containing downloaded models.
+    """
     global _models_loaded, _cached_models
+
     if _models_loaded:
         # Even if loaded, confirm device status in case it changed?
-        print(f"Engine: Models already loaded. Device check: torch.cuda.is_available() -> {torch.cuda.is_available()}")
+        print(f"Engine: Models already loaded (using dir: {models_dir}). Skipping load.")
         return
 
     print("Engine: Loading models...")
     start_time = time.time()
     try:
-        models_download_path = ensure_models_are_downloaded() # Call without arguments
-        if models_download_path is None:
-            raise RuntimeError("Required models could not be downloaded or verified.")
-
-        # Use the path returned/verified by ensure_models_are_downloaded
-        models_dir = models_download_path
-
         hf_token = _get_hf_token()
         cuda_available = torch.cuda.is_available()
         print(f"Engine: torch.cuda.is_available()? -> {cuda_available}")
@@ -76,7 +74,7 @@ def _load_models_if_needed() -> None:
         print(f"Engine: Using device: {device}")
 
         # 1. Load Diarization Pipeline
-        print(f"Engine: Loading diarization model '{DIARIZATION_MODEL_ID}'...")
+        print(f"Engine: Loading diarization model '{DIARIZATION_MODEL_ID}' from {models_dir}...")
         diar_pipeline = DiarizationPipeline.from_pretrained(
             DIARIZATION_MODEL_ID, use_auth_token=hf_token, cache_dir=str(models_dir)
         )
@@ -85,7 +83,7 @@ def _load_models_if_needed() -> None:
         print("Engine: Diarization model loaded.")
 
         # 2. Load ASR Model
-        print(f"Engine: Loading ASR model '{ASR_MODEL_ID}'...")
+        print(f"Engine: Loading ASR model '{ASR_MODEL_ID}' from {models_dir}...")
         # Construct path using HF cache naming convention (replace '/' with '--')
         hf_cache_model_dir_name = f"models--{ASR_MODEL_ID.replace('/', '--')}"
         asr_model_path = models_dir / hf_cache_model_dir_name
@@ -162,7 +160,7 @@ def speaker_for_word(start_time: float,
         return max(overlap_sizes, key=overlap_sizes.get)
 
 
-def transcribe(input_path: Path) -> List[Tuple[float, float, str, str]]:
+def transcribe(input_path: Path, models_dir: Path) -> List[Tuple[float, float, str, str]]:
     """
     Processes an audio/video file using cached Reverb models.
     1. Converts input to WAV.
@@ -170,11 +168,18 @@ def transcribe(input_path: Path) -> List[Tuple[float, float, str, str]]:
     3. Runs ASR (requesting CTM format).
     4. Parses CTM and assigns speakers based on diarization.
     5. Returns a list of (start_time, end_time, speaker_label, word_text).
+
+    Args:
+        input_path: Path to the input audio or video file.
+        models_dir: Path to the directory containing downloaded models.
+
+    Returns:
+        A list of tuples, each containing (start_time, end_time, speaker_label, word_text).
     """
     temp_dir_obj = None # Use TemporaryDirectory for better cleanup
     try:
         # Ensure models are loaded into the cache
-        _load_models_if_needed()
+        _load_models_if_needed(models_dir=models_dir)
         if not _models_loaded:
              # This shouldn't happen if _load_models_if_needed worked, but belt-and-suspenders
              raise RuntimeError("Models could not be loaded. Cannot proceed.")

@@ -30,6 +30,7 @@ def test_transcribe_success(
     mock_convert: mock.MagicMock, # Decorator 3: convert_to_wav
     mock_tempfile: mock.MagicMock, # Decorator 2: tempfile module
     mock_print: mock.MagicMock, # Decorator 1: print
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Auto-used fixtures from conftest handle state/model setup
     # Explicitly use mock_models fixture from conftest
 ) -> None:
@@ -83,7 +84,7 @@ def test_transcribe_success(
     mock_speaker_helper.side_effect = speaker_side_effect
 
     # --- Act ---
-    result = engine.transcribe(input_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path)
 
     # --- Assert ---
     # Verify setup calls
@@ -133,6 +134,7 @@ def test_transcribe_conversion_failure(
     mock_convert: mock.MagicMock, # Decorator 3
     mock_tempfile: mock.MagicMock, # Decorator 2
     mock_print: mock.MagicMock, # Decorator 1
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Autouse fixture from conftest handles reset
 ) -> None:
     """Test transcribe handles failure during the convert_to_wav step.
@@ -152,7 +154,7 @@ def test_transcribe_conversion_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="Conversion failed!"):
-        engine.transcribe(input_path)
+        engine.transcribe(input_path, models_dir=tmp_path)
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
@@ -174,6 +176,7 @@ def test_transcribe_diarization_failure(
     mock_convert: mock.MagicMock, # Decorator 3
     mock_tempfile: mock.MagicMock, # Decorator 2
     mock_print: mock.MagicMock, # Decorator 1
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Autouse fixture from conftest handles reset and models
 ) -> None:
     """Test transcribe handles failure during the diarization step.
@@ -199,7 +202,7 @@ def test_transcribe_diarization_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="Diarization crashed!"):
-        engine.transcribe(input_path)
+        engine.transcribe(input_path, models_dir=tmp_path)
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
@@ -221,6 +224,7 @@ def test_transcribe_asr_failure(
     mock_convert: mock.MagicMock, # Decorator 3
     mock_tempfile: mock.MagicMock, # Decorator 2
     mock_print: mock.MagicMock, # Decorator 1
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Autouse fixture from conftest handles reset and models
 ) -> None:
     """Test transcribe handles failure during the ASR transcribe step.
@@ -256,7 +260,7 @@ def test_transcribe_asr_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="ASR crashed!"):
-        engine.transcribe(input_path)
+        engine.transcribe(input_path, models_dir=tmp_path)
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
@@ -283,6 +287,7 @@ def test_transcribe_empty_ctm(
     mock_convert: mock.MagicMock,
     mock_tempfile: mock.MagicMock,
     mock_print: mock.MagicMock,
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Autouse fixture handles reset/models
 ) -> None:
     """Test transcribe handles an empty CTM result from ASR.
@@ -321,7 +326,7 @@ def test_transcribe_empty_ctm(
     mock_speaker_helper.side_effect = speaker_side_effect
 
     # --- Act ---
-    result = engine.transcribe(input_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path)
 
     # --- Assert ---
     mock_tempfile.assert_called_once()
@@ -355,6 +360,7 @@ def test_transcribe_empty_diarization(
     mock_convert: mock.MagicMock,
     mock_tempfile: mock.MagicMock,
     mock_print: mock.MagicMock,
+    tmp_path, # Add tmp_path fixture
     # monkeypatch # Autouse fixture handles reset/models
 ) -> None:
     """Test transcribe handles empty results from diarization.
@@ -392,7 +398,7 @@ def test_transcribe_empty_diarization(
     mock_speaker_helper.return_value = "UNKNOWN"
 
     # --- Act ---
-    result = engine.transcribe(input_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path)
 
     # --- Assert ---
     mock_tempfile.assert_called_once()
