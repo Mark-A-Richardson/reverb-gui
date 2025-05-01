@@ -99,17 +99,14 @@ def mock_models(monkeypatch):
     # Use start/stop for manual patch management within the fixture scope
     patcher_load_asr = mock.patch('reverb_gui.pipeline.engine.load_asr_model', autospec=True)
     patcher_diar_pipeline = mock.patch('reverb_gui.pipeline.engine.DiarizationPipeline', autospec=True)
-    patcher_ensure_models = mock.patch('reverb_gui.pipeline.engine.ensure_models_are_downloaded', autospec=True)
     patcher_get_token = mock.patch('reverb_gui.pipeline.engine._get_hf_token', autospec=True)
 
     # Start the patchers
     mock_load_asr_func = patcher_load_asr.start()
     mock_diar_pipeline_cls = patcher_diar_pipeline.start()
-    mock_ensure_models_func = patcher_ensure_models.start()
     mock_get_token_func = patcher_get_token.start()
 
     # Provide default return values consistent with original fixture
-    mock_ensure_models_func.return_value = pathlib.Path("/fake/mocked/models/dir/fixture")
     mock_get_token_func.return_value = "mock_hf_token_fixture"
     # Retrieve potentially pre-existing mocks if engine was already 'loaded'
     diar_mock_in_cache = engine._cached_models.get('diarization', mock.MagicMock(name="FallbackDiarMockFixture"))
@@ -121,7 +118,6 @@ def mock_models(monkeypatch):
 
     # Stop the patchers in reverse order
     patcher_get_token.stop()
-    patcher_ensure_models.stop()
     patcher_diar_pipeline.stop()
     patcher_load_asr.stop()
 

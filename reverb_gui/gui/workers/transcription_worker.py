@@ -39,21 +39,23 @@ class WorkerSignals(QObject):
 class TranscriptionWorker(QRunnable):
     """Worker thread for executing the transcription task."""
 
-    def __init__(self, input_path: pathlib.Path, signals: WorkerSignals) -> None:
+    def __init__(self, input_path: pathlib.Path, models_dir: pathlib.Path, signals: WorkerSignals) -> None:
         """Initializes the worker.
 
         Args:
             input_path: The path to the audio/video file to transcribe.
+            models_dir: The path to the directory containing downloaded models.
             signals: An instance of WorkerSignals to communicate back.
         """
         super().__init__()
         self.input_path: pathlib.Path = input_path
+        self.models_dir: pathlib.Path = models_dir
         self.signals: WorkerSignals = signals
 
     def run(self) -> None:
         """Execute the transcription task."""
         try:
-            result_data: Tuple[str, List[Tuple[float, float, str]]] = transcribe(self.input_path)
+            result_data: List[Tuple[float, float, str, str]] = transcribe(self.input_path, models_dir=self.models_dir)
         except Exception as e:
             # Capture traceback details
             exc_type, exc_value, tb = sys.exc_info()

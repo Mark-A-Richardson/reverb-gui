@@ -15,11 +15,16 @@ from typing import List, Tuple, Any
 class MainWindow(QMainWindow):
     """The main application window."""
 
-    def __init__(self) -> None:
-        """Initializes the main window."""
+    def __init__(self, models_dir: pathlib.Path) -> None:
+        """Initializes the main window.
+
+        Args:
+            models_dir: Path to the directory containing downloaded models.
+        """
         super().__init__()
         self.setWindowTitle("reverb-gui")
         self.resize(800, 600)
+        self.models_dir = models_dir  # Store models_dir
 
         # Setup thread pool for background tasks
         self.thread_pool = QThreadPool()
@@ -32,20 +37,20 @@ class MainWindow(QMainWindow):
 
         # Create and add the DropZone
         self.drop_zone = DropZone()
-        layout.addWidget(self.drop_zone, stretch=1) # Give it some stretch factor
+        layout.addWidget(self.drop_zone, stretch=1)  # Give it some stretch factor
 
         # Create and add the Transcript Display (Repurposed for unified output)
         self.transcript_display = QPlainTextEdit()
-        self.transcript_display.setPlaceholderText("Speaker-assigned transcript will appear here...") # Updated placeholder
+        self.transcript_display.setPlaceholderText("Speaker-assigned transcript will appear here...")  # Updated placeholder
         self.transcript_display.setReadOnly(True)
-        layout.addWidget(self.transcript_display, stretch=3) # Increased stretch factor
+        layout.addWidget(self.transcript_display, stretch=3)  # Increased stretch factor
 
         # Create and add the Diarization Display (Now hidden)
         self.diarization_display = QPlainTextEdit()
         self.diarization_display.setPlaceholderText("Speaker segments will appear here...")
         self.diarization_display.setReadOnly(True)
-        self.diarization_display.setVisible(False) # Hide this widget
-        layout.addWidget(self.diarization_display, stretch=0) # No stretch
+        self.diarization_display.setVisible(False)  # Hide this widget
+        layout.addWidget(self.diarization_display, stretch=0)  # No stretch
 
         # Set the main container as the central widget
         self.setCentralWidget(main_container)
@@ -73,7 +78,11 @@ class MainWindow(QMainWindow):
 
         # Create worker and signals
         signals = WorkerSignals()
-        worker = TranscriptionWorker(file_path, signals)
+        worker = TranscriptionWorker(
+            input_path=file_path,
+            models_dir=self.models_dir,  # Pass stored models_dir
+            signals=signals
+        )
 
         # Connect worker signals to slots
         signals.result.connect(self._on_transcription_result)
@@ -84,20 +93,20 @@ class MainWindow(QMainWindow):
         # Execute the worker in the thread pool
         self.thread_pool.start(worker)
 
-    def _on_transcription_result(self, result_data: List[Tuple[float, float, str, str]]) -> None: # Updated type hint
+    def _on_transcription_result(self, result_data: List[Tuple[float, float, str, str]]) -> None:  # Updated type hint
         """Handles the successful result from the transcription worker. (Modified)
 
         Args:
             result_data: A list of tuples, where each tuple is
                          (start_time, end_time, speaker_label, word_text).
         """
-        unified_transcript = result_data # Rename for clarity
+        unified_transcript = result_data  # Rename for clarity
         print("MainWindow: Received unified transcription result.")
         print(f"  Total Word Segments: {len(unified_transcript)}")
 
         # --- Format and Update GUI elements (Modified) ---
         self.transcript_display.clear()
-        self.diarization_display.clear() # Clear even if hidden
+        self.diarization_display.clear()  # Clear even if hidden
 
         if not unified_transcript:
             self.transcript_display.setPlainText("No transcription results returned.")
@@ -113,7 +122,7 @@ class MainWindow(QMainWindow):
         for start, end, speaker, word in unified_transcript:
             # Strip potential whitespace/special tokens if needed
             word = word.strip()
-            if not word: # Skip empty tokens if any
+            if not word:  # Skip empty tokens if any
                 continue
 
             if speaker != current_speaker:
@@ -129,7 +138,7 @@ class MainWindow(QMainWindow):
             else:
                 # Append word to current line
                 current_line += f" {word}"
-                line_end_time = max(line_end_time, end) # Update end time
+                line_end_time = max(line_end_time, end)  # Update end time
 
         # Add the last accumulated line
         if current_line:
@@ -145,9 +154,9 @@ class MainWindow(QMainWindow):
         print(f"Traceback:\n{tb_str}")
         # Show error message dialog to the user (Consider using QMessageBox)
         error_message = f"An error occurred during transcription:\nType: {exc_type.__name__}\nDetails: {exc_value}"
-        self.transcript_display.setPlainText(error_message) # Display error in main area
-        self.diarization_display.clear() # Clear hidden area too
-        self.drop_zone.setText("Error during processing. Drop another file.") # Update text on error
+        self.transcript_display.setPlainText(error_message)  # Display error in main area
+        self.diarization_display.clear()  # Clear hidden area too
+        self.drop_zone.setText("Error during processing. Drop another file.")  # Update text on error
 
     def _on_transcription_finished(self) -> None:
         """Handles the finished signal from the transcription worker."""

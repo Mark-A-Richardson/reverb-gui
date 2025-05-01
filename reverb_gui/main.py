@@ -26,16 +26,14 @@ def launch_gui() -> NoReturn:
         sys.exit(1) # Exit with an error code
     else:
         print(f"Models verified/downloaded successfully in: {models_dir}")
-        # TODO: Pass models_dir to the pipeline/engine when needed
 
     # 2. Initialize and launch the GUI only if models are ready
     # Import MainWindow now that we know we can proceed
     from .gui.mainwindow import MainWindow
 
     app = QApplication(sys.argv)
-    # Pass models_dir to MainWindow if it needs it directly
-    # window = MainWindow(models_dir=models_dir)
-    window = MainWindow() # For now, MainWindow doesn't need it directly
+    # Pass models_dir to MainWindow
+    window = MainWindow(models_dir=models_dir)
     window.show()
     sys.exit(app.exec())
 
