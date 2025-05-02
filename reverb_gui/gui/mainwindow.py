@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit
 from PySide6.QtCore import QThreadPool
 from .widgets.drop_zone import DropZone
 from .workers.transcription_worker import TranscriptionWorker, WorkerSignals
-from ..utils.formatting import format_timestamp_ms
+from ..utils.formatting import format_transcript_lines
 import pathlib
 from typing import List, Tuple, Any
 
@@ -106,56 +106,13 @@ class MainWindow(QMainWindow):
         print(f"  Total Word Segments: {len(unified_transcript)}")
 
         # --- Format and Update GUI elements (Modified) ---
-        self.transcript_display.clear()
-        self.diarization_display.clear()  # Clear even if hidden
-
         if not unified_transcript:
-            self.transcript_display.setPlainText("No transcription results returned.")
+            self.transcript_display.setPlainText("(No transcription results)")
             return
 
-        # Group consecutive words by the same speaker
-        formatted_lines = []
-        current_speaker = None
-        current_line = ""
-        line_start_time = -1.0
-        line_end_time = -1.0
-
-        for start, end, speaker, word in unified_transcript:
-            # Strip potential whitespace/special tokens if needed
-            word = word.strip()
-            if not word:  # Skip empty tokens if any
-                continue
-
-            if speaker != current_speaker:
-                # Finalize previous line if it exists
-                if current_line:
-                    formatted_start = format_timestamp_ms(line_start_time)
-                    formatted_end = format_timestamp_ms(line_end_time)
-                    header = f"[{formatted_start} - {formatted_end}] {current_speaker}:"
-                    # Add blank line separator if not the first entry
-                    prefix = "\n" if formatted_lines else ""
-                    formatted_lines.append(f"{prefix}{header}\n{current_line}")
-
-                # Start new line
-                current_speaker = speaker
-                current_line = word
-                line_start_time = start
-                line_end_time = end
-            else:
-                # Append word to current line
-                current_line += f" {word}"
-                line_end_time = max(line_end_time, end)  # Update end time
-
-        # Add the last accumulated line
-        if current_line:
-            formatted_start = format_timestamp_ms(line_start_time)
-            formatted_end = format_timestamp_ms(line_end_time)
-            header = f"[{formatted_start} - {formatted_end}] {current_speaker}:"
-            # Add blank line separator if not the first entry
-            prefix = "\n" if formatted_lines else ""
-            formatted_lines.append(f"{prefix}{header}\n{current_line}")
-
-        self.transcript_display.setPlainText("\n".join(formatted_lines))
+        # Call the utility function to format the entire transcript
+        formatted_text = format_transcript_lines(unified_transcript)
+        self.transcript_display.setPlainText(formatted_text)
         # --- End Update GUI ---
 
     def _on_transcription_error(self, error_details: Tuple[Any, Any, str]) -> None:

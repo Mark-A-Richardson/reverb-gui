@@ -43,7 +43,7 @@ def test_load_models_if_needed_success(
     # --- Arrange ---
     # Global state reset by reset_engine_globals
 
-    fake_models_dir = pathlib.Path("/fake/models/path")
+    _fake_models_dir = pathlib.Path("/fake/models/path")
     fake_token = "fake_hf_token"
     mock_get_token.return_value = fake_token
     mock_cuda_available.return_value = cuda_available
@@ -166,7 +166,7 @@ def test_load_models_if_needed_fail_diar_load(
     Originally from test_engine.py line 298.
     """
     # --- Arrange ---
-    fake_models_dir = pathlib.Path("/fake/path")
+    _fake_models_dir = pathlib.Path("/fake/path")
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="Diarization load error!"):
@@ -205,7 +205,7 @@ def test_load_models_if_needed_fail_asr_load(
     Originally from test_engine.py line 334.
     """
     # --- Arrange ---
-    fake_models_dir = pathlib.Path("/fake/models/path")
+    _fake_models_dir = pathlib.Path("/fake/models/path")
     mock_diar_instance = mock.MagicMock(name="MockDiarPipelineInstance")
     mock_diar_pipeline_cls.from_pretrained.return_value = mock_diar_instance
     mock_cpu_device = mock.MagicMock(name="MockCPUDevice")
