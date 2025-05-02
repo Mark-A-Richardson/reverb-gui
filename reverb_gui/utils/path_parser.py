@@ -1,5 +1,4 @@
 import os
-import codecs
 from pathlib import Path
 from typing import Optional
 
