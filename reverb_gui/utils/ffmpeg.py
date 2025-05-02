@@ -4,20 +4,31 @@ import shutil
 import subprocess
 import pathlib
 import tempfile
+import os
 from typing import Optional
+import shlex # Import shlex
+from .path_parser import parse_env_path # Import the new parser
 
-FFMPEG_CMD = "ffmpeg" # Default command name, assumes it's in PATH
-# TODO: Make this configurable via settings/env
+# Read FFmpeg command path from environment variable, default to 'ffmpeg'
+raw_ffmpeg_path = os.getenv("FFMPEG_PATH")
+parsed_path = parse_env_path(raw_ffmpeg_path)
+
+if parsed_path:
+    # Use the string representation of the parsed path
+    FFMPEG_CMD = str(parsed_path)
+else:
+    # Default if env var is not set or empty, or parsing failed
+    FFMPEG_CMD = "ffmpeg"
 
 def check_ffmpeg_availability() -> bool:
-    """Checks if the ffmpeg command is available in the system PATH."""
-    if shutil.which(FFMPEG_CMD):
-        print(f"FFmpeg found at: {shutil.which(FFMPEG_CMD)}")
+    """Checks if the ffmpeg command is available and executable."""
+    cmd_path = shutil.which(FFMPEG_CMD)
+    if cmd_path:
+        print(f"FFmpeg found at: {cmd_path}")
         return True
     else:
-        print(f"Error: '{FFMPEG_CMD}' command not found in PATH.")
-        print("Please ensure FFmpeg is installed and added to your system's PATH.")
-        # In the future, we might check a bundled location too.
+        print(f"Error: Command '{FFMPEG_CMD}' not found using shutil.which.")
+        print("Please ensure the path is correct in FFMPEG_PATH (if set) or that 'ffmpeg' is in your system's PATH.")
         return False
 
 def convert_to_wav(
@@ -46,7 +57,7 @@ def convert_to_wav(
         ValueError: If input arguments are invalid (e.g., bit_depth).
     """
     if not check_ffmpeg_availability():
-        raise FileNotFoundError(f"'{FFMPEG_CMD}' command not found. Cannot convert audio.")
+        raise FileNotFoundError(f"Command '{FFMPEG_CMD}' not found or not executable. Cannot convert audio.")
 
     if not input_path.is_file():
         raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -70,7 +81,7 @@ def convert_to_wav(
 
     # Construct output path (ensure unique name to avoid collisions)
     output_filename = f"{input_path.stem}_converted_{sample_rate}hz_{bit_depth}bit_mono.wav"
-    output_path = output_dir_path / output_filename
+    output_wav_path = output_dir_path / output_filename
 
     # Construct FFmpeg command
     # -i: input file
@@ -82,44 +93,37 @@ def convert_to_wav(
     # -loglevel error: Only show errors
     command = [
         FFMPEG_CMD,
-        "-i", str(input_path),
-        "-vn",
-        "-acodec", pcm_codec,
-        "-ar", str(sample_rate),
-        "-ac", str(channels),
-        "-y",
-        "-loglevel", "error", # Keep output clean unless error
+        '-i', str(input_path),
+        '-vn',
+        '-acodec', pcm_codec,
+        '-ar', str(sample_rate),
+        '-ac', str(channels),
+        '-y',
+        '-loglevel', 'error', # Keep output clean unless error
         # TODO: Add '-progress pipe:1' for progress reporting later
-        str(output_path)
+        str(output_wav_path)
     ]
 
-    print(f"Running FFmpeg command: {' '.join(command)}")
     try:
-        # Using subprocess.run for simplicity; use Popen for progress later
-        subprocess.run(command, check=True, capture_output=True, text=True)
-        print(f"FFmpeg conversion successful: {output_path}")
-        # print(f"FFmpeg stdout:\n{result.stdout}") # Usually empty with -loglevel error
-        # print(f"FFmpeg stderr:\n{result.stderr}") # Contains errors if any
-        return output_path
+        result = subprocess.run(command, check=True, capture_output=True, text=True, shell=False)
+        # print(f"DEBUG: FFmpeg stdout:\n{result.stdout}") # Often empty with -loglevel error
+        # print(f"DEBUG: FFmpeg stderr:\n{result.stderr}") # Can contain info even on success
     except subprocess.CalledProcessError as e:
-        error_message = (
-            f"FFmpeg conversion failed with exit code {e.returncode}.\n"
-            f"Command: {' '.join(e.cmd)}\n"
-            f"Stderr:\n{e.stderr}"
-        )
-        print(error_message)
-        # Clean up failed output file if it exists
-        if output_path.exists():
-            try:
-                output_path.unlink()
-            except OSError as unlink_err:
-                 print(f"Warning: Could not delete incomplete output file {output_path}: {unlink_err}")
-        raise RuntimeError(error_message) from e
+        print(f"FFmpeg conversion failed with CalledProcessError!")
+        print(f"Command executed: {' '.join(shlex.quote(c) for c in command)}") # Use shlex.quote for safe display
+        print(f"Return code: {e.returncode}")
+        print(f"Stderr:\n{e.stderr}")
+        raise RuntimeError(f"FFmpeg conversion failed for {input_path}. Command: '{FFMPEG_CMD}'. Error: {e.stderr}") from e
     except FileNotFoundError as e:
-         # This typically means FFMPEG_CMD wasn't found despite check_ffmpeg_availability
-         # Should not happen if check passes, but handle defensively.
-         print(f"Error running subprocess: {e}")
-         raise FileNotFoundError(f"'{FFMPEG_CMD}' command failed to execute. Is it installed correctly?") from e
+        print(f"Error executing FFmpeg command (FileNotFoundError): {e}")
+        raise FileNotFoundError(f"Failed to execute command '{FFMPEG_CMD}'. Is it a valid executable and accessible? Original error: {e}") from e
+
+    # Check if the output file was actually created (belt-and-suspenders)
+    if not output_wav_path.is_file() or output_wav_path.stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg conversion failed to produce output file: {output_wav_path}")
+
+    print(f"FFmpeg conversion successful: {output_wav_path}")
+    return output_wav_path
 
 # Example usage (for testing)
 if __name__ == "__main__":

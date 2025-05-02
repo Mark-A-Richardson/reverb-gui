@@ -2,6 +2,7 @@ import pytest
 import pathlib
 import subprocess
 from unittest import mock
+import os
 
 # Module to test
 from reverb_gui.utils import ffmpeg
@@ -20,7 +21,7 @@ def test_check_ffmpeg_availability_found(mock_which: mock.MagicMock) -> None:
 
     # Assert
     assert result is True
-    assert mock_which.call_count == 2 # Called in 'if' and 'print'
+    assert mock_which.call_count == 1 # Only called once to check existence
     mock_which.assert_called_with(ffmpeg.FFMPEG_CMD) # Check args of the last call (same as first)
 
 
@@ -111,7 +112,9 @@ def test_convert_to_wav_success_temp_dir(
         "-loglevel", "error",
         str(mock_output_wav_instance) # Final output path mock
     ]
-    mock_subprocess_run.assert_called_once_with(expected_cmd, check=True, capture_output=True, text=True)
+    mock_subprocess_run.assert_called_once_with(
+        expected_cmd, check=True, capture_output=True, text=True, shell=False
+    )
 
 
 @mock.patch('reverb_gui.utils.ffmpeg.subprocess.run')
@@ -181,7 +184,9 @@ def test_convert_to_wav_success_specific_dir(
         "-loglevel", "error",
         str(mock_output_wav_instance)
     ]
-    mock_subprocess_run.assert_called_once_with(expected_cmd, check=True, capture_output=True, text=True)
+    mock_subprocess_run.assert_called_once_with(
+        expected_cmd, check=True, capture_output=True, text=True, shell=False
+    )
 
 
 @mock.patch('reverb_gui.utils.ffmpeg.check_ffmpeg_availability')
@@ -198,7 +203,8 @@ def test_convert_to_wav_fail_ffmpeg_not_found(
         ffmpeg.convert_to_wav(mock_input_path)
 
     # Assert correct exception message
-    assert f"'{ffmpeg.FFMPEG_CMD}' command not found" in str(excinfo.value) # Check actual message
+    assert "not found or not executable" in str(excinfo.value) # Check new message substring
+
     mock_check_ffmpeg.assert_called_once() # Ensure the check was performed
 
 
@@ -272,8 +278,8 @@ def test_convert_to_wav_fail_ffmpeg_error(
             ffmpeg.convert_to_wav(mock_input_path_instance)
 
     # Assert correct exception message
-    assert "FFmpeg conversion failed with exit code" in str(excinfo.value) # Check for actual message start
-    assert error_message in str(excinfo.value) # Ensure original error is included
+    assert "FFmpeg conversion failed" in str(excinfo.value) # Check for new message start
+    assert error_message in str(excinfo.value) # Ensure original stderr is included
 
     # Assert mocks were called as expected up to the failure point
     mock_check_ffmpeg.assert_called_once()
@@ -307,3 +313,30 @@ def test_convert_to_wav_fail_invalid_bit_depth(
     assert "Must be 16, 24, or 32" in str(excinfo.value) # Check supported depths
     mock_check_ffmpeg.assert_called_once() # Ensure ffmpeg check happened
     mock_input_path.is_file.assert_called_once() # Ensure file check happened
+
+
+# Test that FFMPEG_CMD is correctly determined from environment variable
+@pytest.mark.parametrize(
+    "env_path, expected_cmd",
+    [
+        (None, "ffmpeg"), # Default when not set
+        ("", "ffmpeg"), # Default when empty
+        ("/usr/bin/ffmpeg", os.path.normpath("/usr/bin/ffmpeg")), # Unix-style path
+        ("C:/ffmpeg/bin/ffmpeg.exe", os.path.normpath('C:/ffmpeg/bin/ffmpeg.exe')), # Normalized
+        ("C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe", os.path.normpath('C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe')), # Normalized
+        ('"C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe"', os.path.normpath('C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe')), # Normalized from quoted
+        ("ffmpeg_custom_name", "ffmpeg_custom_name"), # Just a name, expect passthrough (not a path)
+    ]
+)
+def test_ffmpeg_cmd_from_env(monkeypatch, env_path, expected_cmd):
+    """Verify FFMPEG_CMD uses env var FFMPEG_PATH correctly, normalizing paths."""
+    if env_path is not None:
+        monkeypatch.setenv("FFMPEG_PATH", env_path)
+    else:
+        monkeypatch.delenv("FFMPEG_PATH", raising=False) # Ensure it's not set
+
+    # Reload the ffmpeg module to re-evaluate FFMPEG_CMD with the new env var
+    import importlib
+    importlib.reload(ffmpeg)
+
+    assert ffmpeg.FFMPEG_CMD == expected_cmd
