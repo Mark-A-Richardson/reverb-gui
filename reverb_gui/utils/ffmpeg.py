@@ -105,9 +105,9 @@ def convert_to_wav(
     ]
 
     try:
-        result = subprocess.run(command, check=True, capture_output=True, text=True, shell=False)
-        # print(f"DEBUG: FFmpeg stdout:\n{result.stdout}") # Often empty with -loglevel error
-        # print(f"DEBUG: FFmpeg stderr:\n{result.stderr}") # Can contain info even on success
+        _result = subprocess.run(command, check=True, capture_output=True, text=True, shell=False)
+        # print(f"DEBUG: FFmpeg stdout:\n{_result.stdout}") # Often empty with -loglevel error
+        # print(f"DEBUG: FFmpeg stderr:\n{_result.stderr}") # Can contain info even on success
     except subprocess.CalledProcessError as e:
         print("FFmpeg conversion failed with CalledProcessError!")
         print(f"Command executed: {' '.join(shlex.quote(c) for c in command)}") # Use shlex.quote for safe display
