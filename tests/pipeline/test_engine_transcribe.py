@@ -6,7 +6,8 @@ from pyannote.core import Annotation, Segment
 
 # Module to test
 from reverb_gui.pipeline import engine
-
+# Import helpers from conftest (needed for explicit calls, fixtures are auto-used)
+from .conftest import create_empty_mock_annotation # Import from sibling conftest
 # Import shared fixtures/helpers implicitly from conftest.py
 # Explicit imports are not needed for fixtures like mock_models, MOCK_CTM_OUTPUT,
 # create_mock_annotation, create_empty_mock_annotation
@@ -84,7 +85,7 @@ def test_transcribe_success(
     mock_speaker_helper.side_effect = speaker_side_effect
 
     # --- Act ---
-    result = engine.transcribe(input_path, models_dir=tmp_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # --- Assert ---
     # Verify setup calls
@@ -103,7 +104,17 @@ def test_transcribe_success(
     mock_interval_tree.return_value.add.assert_has_calls(expected_tree_calls, any_order=True)
 
     # Verify ASR call
-    mock_asr_model.transcribe.assert_called_once_with(str(wav_path), format="ctm")
+    mock_asr_model.transcribe.assert_called_once_with(
+        str(wav_path),
+        mode="ctc_prefix_beam_search",
+        beam_size=10,
+        length_penalty=0.0,
+        ctc_weight=0.1,
+        reverse_weight=0.0,
+        blank_penalty=0.0,
+        verbatimicity=1.0,
+        format="ctm"
+    )
 
     # Verify speaker_for_word calls based on sample CTM
     expected_speaker_calls = [
@@ -154,7 +165,7 @@ def test_transcribe_conversion_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="Conversion failed!"):
-        engine.transcribe(input_path, models_dir=tmp_path)
+        engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
@@ -202,7 +213,7 @@ def test_transcribe_diarization_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="Diarization crashed!"):
-        engine.transcribe(input_path, models_dir=tmp_path)
+        engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
@@ -260,13 +271,23 @@ def test_transcribe_asr_failure(
 
     # --- Act & Assert ---
     with pytest.raises(RuntimeError, match="ASR crashed!"):
-        engine.transcribe(input_path, models_dir=tmp_path)
+        engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # Verify calls up to failure point
     mock_tempfile.assert_called_once()
     mock_convert.assert_called_once_with(input_path, output_dir=temp_dir_path) # Expect Path object
     mock_diar_model.assert_called_once_with(str(wav_path))
-    mock_asr_model.transcribe.assert_called_once_with(str(wav_path), format="ctm")
+    mock_asr_model.transcribe.assert_called_once_with(
+        str(wav_path),
+        mode="ctc_prefix_beam_search",
+        beam_size=10,
+        length_penalty=0.0,
+        ctc_weight=0.1,
+        reverse_weight=0.0,
+        blank_penalty=0.0,
+        verbatimicity=1.0,
+        format="ctm"
+    )
 
     # Verify temp dir cleanup still happened
     mock_temp_dir_instance.cleanup.assert_called_once()
@@ -326,13 +347,23 @@ def test_transcribe_empty_ctm(
     mock_speaker_helper.side_effect = speaker_side_effect
 
     # --- Act ---
-    result = engine.transcribe(input_path, models_dir=tmp_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # --- Assert ---
     mock_tempfile.assert_called_once()
     mock_convert.assert_called_once_with(input_path, output_dir=temp_dir_path) # Expect Path object
     mock_diar_model.assert_called_once_with(str(wav_path))
-    mock_asr_model.transcribe.assert_called_once_with(str(wav_path), format="ctm")
+    mock_asr_model.transcribe.assert_called_once_with(
+        str(wav_path),
+        mode="ctc_prefix_beam_search",
+        beam_size=10,
+        length_penalty=0.0,
+        ctc_weight=0.1,
+        reverse_weight=0.0,
+        blank_penalty=0.0,
+        verbatimicity=1.0,
+        format="ctm"
+    )
 
     # Speaker helper should not be called for empty CTM
     mock_speaker_helper.assert_not_called()
@@ -398,7 +429,7 @@ def test_transcribe_empty_diarization(
     mock_speaker_helper.return_value = "UNKNOWN"
 
     # --- Act ---
-    result = engine.transcribe(input_path, models_dir=tmp_path)
+    result = engine.transcribe(input_path, models_dir=tmp_path, asr_params={})
 
     # --- Assert ---
     mock_tempfile.assert_called_once()
@@ -407,7 +438,17 @@ def test_transcribe_empty_diarization(
     mock_interval_tree.assert_called_once()
     mock_interval_tree.return_value.add.assert_not_called() # Tree should be empty
 
-    mock_asr_model.transcribe.assert_called_once_with(str(wav_path), format="ctm")
+    mock_asr_model.transcribe.assert_called_once_with(
+        str(wav_path),
+        mode="ctc_prefix_beam_search",
+        beam_size=10,
+        length_penalty=0.0,
+        ctc_weight=0.1,
+        reverse_weight=0.0,
+        blank_penalty=0.0,
+        verbatimicity=1.0,
+        format="ctm"
+    )
 
     # Speaker helper should be called for each word, returning UNKNOWN
     expected_speaker_calls = [
@@ -427,3 +468,82 @@ def test_transcribe_empty_diarization(
     mock_temp_dir_instance.cleanup.assert_called_once()
     # Check for warning print about empty diarization
     mock_print.assert_any_call("Warning: Diarization returned no segments.")
+
+@mock.patch('builtins.print')
+@mock.patch('tempfile.TemporaryDirectory')
+@mock.patch('reverb_gui.pipeline.engine.convert_to_wav')
+@mock.patch('reverb_gui.pipeline.engine.IntervalTree') # Needed for diarization part
+@mock.patch('reverb_gui.pipeline.engine.speaker_for_word') # Needed for alignment part
+@pytest.mark.usefixtures("mock_models")
+def test_transcribe_passes_asr_params(
+    mock_speaker_helper: mock.MagicMock, # Decorator 5
+    mock_interval_tree_cls: mock.MagicMock, # Decorator 4: IntervalTree class
+    mock_convert: mock.MagicMock,       # Decorator 3
+    mock_tempfile: mock.MagicMock,      # Decorator 2
+    mock_print: mock.MagicMock,         # Decorator 1
+    tmp_path # tmp_path fixture
+    # mock_models fixture is applied via decorator
+) -> None:
+    """Verify that asr_params are correctly unpacked and passed to asr_model.transcribe."""
+    # --- Arrange ---
+    input_path = tmp_path / "test_input.mp3"
+    input_path.touch() # Create dummy file
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    temp_dir_path = tmp_path / "temp_transcribe"
+    wav_path = temp_dir_path / f"{input_path.stem}.wav"
+
+    # Mock temp dir creation
+    mock_temp_dir_instance = mock.MagicMock()
+    mock_temp_dir_instance.name = str(temp_dir_path)
+    mock_tempfile.return_value = mock_temp_dir_instance
+
+    mock_convert.return_value = wav_path
+
+    # Mock IntervalTree instance and its methods if necessary for diarization part
+    mock_tree_instance = mock.MagicMock()
+    mock_interval_tree_cls.return_value = mock_tree_instance
+
+    # Mock speaker assignment (return dummy speaker)
+    mock_speaker_helper.return_value = "SPK_X"
+
+    # Get mocked models from the fixture-populated cache
+    mock_asr_model = engine._cached_models['asr']
+    mock_diar_model = engine._cached_models['diarization']
+    # Mock ASR output (simple CTM format)
+    mock_asr_model.transcribe.return_value = "1 /fake/audio.wav 1 0.1 0.5 hello\n1 /fake/audio.wav 1 0.7 0.4 world"
+    # Mock Diarization output (can use helper from conftest)
+    mock_diar_model.return_value = create_empty_mock_annotation() # Ensure it runs
+
+    # Define specific ASR parameters to test
+    test_asr_params = {
+        "mode": "attention_rescoring",
+        "beam_size": 5,
+        "length_penalty": -0.5,
+        "ctc_weight": 0.7,
+        "reverse_weight": 0.2,
+        "blank_penalty": 1.1,
+        "verbatimicity": 0.9,
+    }
+    expected_asr_call_args = {
+        "mode": "attention_rescoring",
+        "beam_size": 5,
+        "length_penalty": -0.5,
+        "ctc_weight": 0.7,
+        "reverse_weight": 0.2,
+        "blank_penalty": 1.1,
+        "verbatimicity": 0.9,
+        "format": "ctm", # This is hardcoded in the engine
+    }
+
+    # --- Act ---
+    engine.transcribe(input_path, models_dir, asr_params=test_asr_params)
+
+    # --- Assert ---
+    # Verify that the mocked asr_model's transcribe method was called correctly
+    mock_asr_model.transcribe.assert_called_once()
+    # Check positional argument (wav path)
+    call_args, call_kwargs = mock_asr_model.transcribe.call_args
+    assert call_args[0] == str(wav_path)
+    # Check keyword arguments (ASR parameters)
+    assert call_kwargs == expected_asr_call_args

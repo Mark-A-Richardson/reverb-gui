@@ -4,7 +4,10 @@ Hosts the primary user interface components like drag-drop area, settings, progr
 """
 
 # --- Imports (Added QWidget, QVBoxLayout, QPlainTextEdit) ---
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit
+from PySide6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit,
+    QGroupBox, QFormLayout, QComboBox, QSpinBox, QDoubleSpinBox, QLabel
+)
 from PySide6.QtCore import QThreadPool
 from .widgets.drop_zone import DropZone
 from .workers.transcription_worker import TranscriptionWorker, WorkerSignals
@@ -40,6 +43,10 @@ class MainWindow(QMainWindow):
         self.drop_zone = DropZone()
         layout.addWidget(self.drop_zone, stretch=1)  # Give it some stretch factor
 
+        # --- ASR Settings GroupBox (Added) ---
+        self._setup_asr_settings_widgets(layout)
+        # --- End ASR Settings --- 
+
         # Create and add the Transcript Display (Repurposed for unified output)
         self.transcript_display = QPlainTextEdit()
         self.transcript_display.setPlaceholderText("Speaker-assigned transcript will appear here...")  # Updated placeholder
@@ -60,6 +67,83 @@ class MainWindow(QMainWindow):
         # Connect the signal from the drop zone to our handler slot
         self.drop_zone.fileDropped.connect(self._handle_file_drop)
 
+    def _setup_asr_settings_widgets(self, parent_layout: QVBoxLayout) -> None:
+        """Creates and adds the ASR settings group box and widgets."""
+        asr_group_box = QGroupBox("ASR Settings")
+        form_layout = QFormLayout()
+
+        # Mode
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems(["ctc_prefix_beam_search", "attention_rescoring"])
+        form_layout.addRow(QLabel("Mode:"), self.mode_combo)
+
+        # Beam Size
+        self.beam_size_spin = QSpinBox()
+        self.beam_size_spin.setRange(1, 50) # Reasonable range
+        self.beam_size_spin.setValue(10) # Default from engine
+        form_layout.addRow(QLabel("Beam Size:"), self.beam_size_spin)
+
+        # Length Penalty
+        self.length_penalty_spin = QDoubleSpinBox()
+        self.length_penalty_spin.setRange(-10.0, 10.0)
+        self.length_penalty_spin.setDecimals(2)
+        self.length_penalty_spin.setSingleStep(0.1)
+        self.length_penalty_spin.setValue(0.0) # Default from engine
+        form_layout.addRow(QLabel("Length Penalty:"), self.length_penalty_spin)
+
+        # CTC Weight (Relevant for attention_rescoring)
+        self.ctc_weight_label = QLabel("CTC Weight:")
+        self.ctc_weight_spin = QDoubleSpinBox()
+        self.ctc_weight_spin.setRange(0.0, 1.0)
+        self.ctc_weight_spin.setDecimals(2)
+        self.ctc_weight_spin.setSingleStep(0.05)
+        self.ctc_weight_spin.setValue(0.1) # Default from engine
+        form_layout.addRow(self.ctc_weight_label, self.ctc_weight_spin)
+
+        # Reverse Weight (Relevant for attention_rescoring)
+        self.reverse_weight_label = QLabel("Reverse Weight:")
+        self.reverse_weight_spin = QDoubleSpinBox()
+        self.reverse_weight_spin.setRange(0.0, 1.0)
+        self.reverse_weight_spin.setDecimals(2)
+        self.reverse_weight_spin.setSingleStep(0.05)
+        self.reverse_weight_spin.setValue(0.0) # Default from engine
+        form_layout.addRow(self.reverse_weight_label, self.reverse_weight_spin)
+
+        # Blank Penalty
+        self.blank_penalty_spin = QDoubleSpinBox()
+        self.blank_penalty_spin.setRange(0.0, 10.0)
+        self.blank_penalty_spin.setDecimals(2)
+        self.blank_penalty_spin.setSingleStep(0.1)
+        self.blank_penalty_spin.setValue(0.0) # Default from engine
+        form_layout.addRow(QLabel("Blank Penalty:"), self.blank_penalty_spin)
+
+        # Verbatimicity
+        self.verbatimicity_spin = QDoubleSpinBox()
+        self.verbatimicity_spin.setRange(0.0, 1.0)
+        self.verbatimicity_spin.setDecimals(2)
+        self.verbatimicity_spin.setSingleStep(0.1)
+        self.verbatimicity_spin.setValue(1.0) # Default from engine was 0.5, but 1.0 seems more standard
+        form_layout.addRow(QLabel("Verbatimicity:"), self.verbatimicity_spin)
+
+        # Set layout for group box
+        asr_group_box.setLayout(form_layout)
+        parent_layout.addWidget(asr_group_box, stretch=0) # No stretch for settings
+
+        # Connect mode change signal
+        self.mode_combo.currentIndexChanged.connect(self._update_asr_param_widgets)
+        # Initial update
+        self._update_asr_param_widgets()
+
+    def _update_asr_param_widgets(self) -> None:
+        """Enables/disables widgets based on the selected ASR mode."""
+        selected_mode = self.mode_combo.currentText()
+        is_rescoring_mode = (selected_mode == "attention_rescoring")
+
+        self.ctc_weight_label.setEnabled(is_rescoring_mode)
+        self.ctc_weight_spin.setEnabled(is_rescoring_mode)
+        self.reverse_weight_label.setEnabled(is_rescoring_mode)
+        self.reverse_weight_spin.setEnabled(is_rescoring_mode)
+
     def _handle_file_drop(self, file_path: pathlib.Path) -> None:
         """Handles the fileDropped signal from the DropZone widget.
 
@@ -77,11 +161,24 @@ class MainWindow(QMainWindow):
         self.drop_zone.setEnabled(False)
         self.drop_zone.setText("Processing... Please Wait")  # Update text
 
+        # --- Get ASR parameters from GUI (Added) ---
+        asr_params = {
+            "mode": self.mode_combo.currentText(),
+            "beam_size": self.beam_size_spin.value(),
+            "length_penalty": self.length_penalty_spin.value(),
+            "ctc_weight": self.ctc_weight_spin.value(),
+            "reverse_weight": self.reverse_weight_spin.value(),
+            "blank_penalty": self.blank_penalty_spin.value(),
+            "verbatimicity": self.verbatimicity_spin.value(),
+        }
+        # --- End Get ASR parameters ---
+
         # Create worker and signals
         signals = WorkerSignals()
         worker = TranscriptionWorker(
             input_path=file_path,
             models_dir=self.models_dir,  # Pass stored models_dir
+            asr_params=asr_params, # Pass ASR parameters
             signals=signals
         )
 
