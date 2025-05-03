@@ -160,7 +160,11 @@ def speaker_for_word(start_time: float,
         return max(overlap_sizes, key=overlap_sizes.get)
 
 
-def transcribe(input_path: Path, models_dir: Path) -> List[Tuple[float, float, str, str]]:
+def transcribe(
+    input_path: Path,
+    models_dir: Path,
+    asr_params: dict # Added parameter to accept GUI settings
+) -> List[Tuple[float, float, str, str]]:
     """
     Processes an audio/video file using cached Reverb models.
     1. Converts input to WAV.
@@ -172,6 +176,7 @@ def transcribe(input_path: Path, models_dir: Path) -> List[Tuple[float, float, s
     Args:
         input_path: Path to the input audio or video file.
         models_dir: Path to the directory containing downloaded models.
+        asr_params: Dictionary containing ASR parameters from the GUI.
 
     Returns:
         A list of tuples, each containing (start_time, end_time, speaker_label, word_text).
@@ -218,8 +223,26 @@ def transcribe(input_path: Path, models_dir: Path) -> List[Tuple[float, float, s
         # 3. Run ASR (Wenet) - Requesting CTM format
         print(f"Engine: Running ASR on {wav_path.name}...")
         asr_start = time.time()
-        # *** IMPORTANT: Calling transcribe with format='ctm' ***
-        asr_result_ctm: str = asr_model.transcribe(str(wav_path), format="ctm")
+        # *** IMPORTANT: Calling transcribe with format='ctm' and beam search parameters ***
+        asr_result_ctm: str = asr_model.transcribe(
+            str(wav_path),
+            # --- Parameters passed from GUI --- 
+            mode=asr_params.get("mode", "ctc_prefix_beam_search"), # Use provided or default
+            beam_size=asr_params.get("beam_size", 10),
+            length_penalty=asr_params.get("length_penalty", 0.0),
+            ctc_weight=asr_params.get("ctc_weight", 0.1),
+            reverse_weight=asr_params.get("reverse_weight", 0.0),
+            blank_penalty=asr_params.get("blank_penalty", 0.0),
+            verbatimicity=asr_params.get("verbatimicity", 1.0), # Use 1.0 as default if missing
+            # --- Fixed parameter for this pipeline --- 
+            format="ctm",  # Essential for word timing extraction
+            # --- Parameters not exposed in GUI (using defaults) ---
+            # chunk_size=2051,
+            # batch_size=1,
+            # decoding_chunk_size=-1,
+            # num_decoding_left_chunks=-1,
+            # simulate_streaming=False,
+        )
         asr_end = time.time()
         print(f"Engine: ASR took {asr_end - asr_start:.2f}s.")
 
