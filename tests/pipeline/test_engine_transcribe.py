@@ -1,5 +1,6 @@
 import pytest
 import pathlib
+from typing import Dict, Any
 from unittest import mock
 
 from pyannote.core import Annotation, Segment
@@ -106,7 +107,7 @@ def test_transcribe_success(
     # Verify ASR call
     mock_asr_model.transcribe.assert_called_once_with(
         str(wav_path),
-        mode="ctc_prefix_beam_search",
+        mode="attention_rescoring",
         beam_size=10,
         length_penalty=0.0,
         ctc_weight=0.1,
@@ -279,7 +280,7 @@ def test_transcribe_asr_failure(
     mock_diar_model.assert_called_once_with(str(wav_path))
     mock_asr_model.transcribe.assert_called_once_with(
         str(wav_path),
-        mode="ctc_prefix_beam_search",
+        mode="attention_rescoring",
         beam_size=10,
         length_penalty=0.0,
         ctc_weight=0.1,
@@ -355,7 +356,7 @@ def test_transcribe_empty_ctm(
     mock_diar_model.assert_called_once_with(str(wav_path))
     mock_asr_model.transcribe.assert_called_once_with(
         str(wav_path),
-        mode="ctc_prefix_beam_search",
+        mode="attention_rescoring",
         beam_size=10,
         length_penalty=0.0,
         ctc_weight=0.1,
@@ -440,7 +441,7 @@ def test_transcribe_empty_diarization(
 
     mock_asr_model.transcribe.assert_called_once_with(
         str(wav_path),
-        mode="ctc_prefix_beam_search",
+        mode="attention_rescoring",
         beam_size=10,
         length_penalty=0.0,
         ctc_weight=0.1,
@@ -476,8 +477,8 @@ def test_transcribe_empty_diarization(
 @mock.patch('reverb_gui.pipeline.engine.speaker_for_word') # Needed for alignment part
 @pytest.mark.usefixtures("mock_models")
 def test_transcribe_passes_asr_params(
-    mock_speaker_helper: mock.MagicMock, # Decorator 5
-    mock_interval_tree_cls: mock.MagicMock, # Decorator 4: IntervalTree class
+    mock_speaker_helper: mock.MagicMock, # Decorator 5 (unused but kept for order)
+    mock_interval_tree: mock.MagicMock, # Decorator 4: IntervalTree (instance needed for call)
     mock_convert: mock.MagicMock,       # Decorator 3
     mock_tempfile: mock.MagicMock,      # Decorator 2
     mock_print: mock.MagicMock,         # Decorator 1
@@ -502,7 +503,7 @@ def test_transcribe_passes_asr_params(
 
     # Mock IntervalTree instance and its methods if necessary for diarization part
     mock_tree_instance = mock.MagicMock()
-    mock_interval_tree_cls.return_value = mock_tree_instance
+    mock_interval_tree.return_value = mock_tree_instance
 
     # Mock speaker assignment (return dummy speaker)
     mock_speaker_helper.return_value = "SPK_X"
@@ -515,35 +516,35 @@ def test_transcribe_passes_asr_params(
     # Mock Diarization output (can use helper from conftest)
     mock_diar_model.return_value = create_empty_mock_annotation() # Ensure it runs
 
-    # Define specific ASR parameters to test
-    test_asr_params = {
-        "mode": "attention_rescoring",
-        "beam_size": 5,
-        "length_penalty": -0.5,
-        "ctc_weight": 0.7,
-        "reverse_weight": 0.2,
-        "blank_penalty": 1.1,
-        "verbatimicity": 0.9,
-    }
-    expected_asr_call_args = {
-        "mode": "attention_rescoring",
-        "beam_size": 5,
-        "length_penalty": -0.5,
-        "ctc_weight": 0.7,
-        "reverse_weight": 0.2,
-        "blank_penalty": 1.1,
-        "verbatimicity": 0.9,
-        "format": "ctm", # This is hardcoded in the engine
+    # Define specific non-default ASR parameters to test
+    test_asr_params: Dict[str, Any] = {
+        "mode": "attention",        # Non-default
+        "beam_size": 5,             # Non-default
+        "length_penalty": -0.5,     # Non-default
+        "ctc_weight": 0.8,          # Non-default
+        "reverse_weight": 0.3,      # Non-default
+        "blank_penalty": 1.5,       # Non-default
+        "verbatimicity": 0.2,       # Non-default
     }
 
-    # --- Act ---
+    # --- Act --- 
+    # Call transcribe with the specific parameters
     engine.transcribe(input_path, models_dir, asr_params=test_asr_params)
 
-    # --- Assert ---
-    # Verify that the mocked asr_model's transcribe method was called correctly
-    mock_asr_model.transcribe.assert_called_once()
-    # Check positional argument (wav path)
-    call_args, call_kwargs = mock_asr_model.transcribe.call_args
-    assert call_args[0] == str(wav_path)
-    # Check keyword arguments (ASR parameters)
-    assert call_kwargs == expected_asr_call_args
+    # --- Assert --- 
+    # Verify asr_model.transcribe was called with the exact parameters provided
+    mock_asr_model.transcribe.assert_called_once_with(
+        str(wav_path),
+        # --- Check against test_asr_params values --- 
+        mode=test_asr_params["mode"],
+        beam_size=test_asr_params["beam_size"],
+        length_penalty=test_asr_params["length_penalty"],
+        ctc_weight=test_asr_params["ctc_weight"],
+        reverse_weight=test_asr_params["reverse_weight"],
+        blank_penalty=test_asr_params["blank_penalty"],
+        verbatimicity=test_asr_params["verbatimicity"],
+        # --- Check fixed parameter --- 
+        format="ctm" # Ensure the fixed format is still passed
+    )
+
+    # Verify cleanup happened

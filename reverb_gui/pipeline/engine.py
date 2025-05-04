@@ -163,7 +163,7 @@ def speaker_for_word(start_time: float,
 def transcribe(
     input_path: Path,
     models_dir: Path,
-    asr_params: dict # Added parameter to accept GUI settings
+    asr_params: Dict[str, Any],
 ) -> List[Tuple[float, float, str, str]]:
     """
     Processes an audio/video file using cached Reverb models.
@@ -227,21 +227,19 @@ def transcribe(
         asr_result_ctm: str = asr_model.transcribe(
             str(wav_path),
             # --- Parameters passed from GUI --- 
-            mode=asr_params.get("mode", "ctc_prefix_beam_search"), # Use provided or default
-            beam_size=asr_params.get("beam_size", 10),
+            mode=asr_params.get("mode", "attention_rescoring"), # Default from GUI
+            beam_size=asr_params.get("beam_size", 10), # Default from engine/GUI
             length_penalty=asr_params.get("length_penalty", 0.0),
             ctc_weight=asr_params.get("ctc_weight", 0.1),
             reverse_weight=asr_params.get("reverse_weight", 0.0),
             blank_penalty=asr_params.get("blank_penalty", 0.0),
-            verbatimicity=asr_params.get("verbatimicity", 1.0), # Use 1.0 as default if missing
-            # --- Fixed parameter for this pipeline --- 
-            format="ctm",  # Essential for word timing extraction
-            # --- Parameters not exposed in GUI (using defaults) ---
-            # chunk_size=2051,
-            # batch_size=1,
-            # decoding_chunk_size=-1,
-            # num_decoding_left_chunks=-1,
-            # simulate_streaming=False,
+            verbatimicity=asr_params.get("verbatimicity", 1.0),
+             # --- Fixed parameter for this pipeline --- 
+             format="ctm",  # Essential for word timing extraction
+             # --- Parameters not exposed in GUI (using defaults) ---
+             # decoding_chunk_size=-1,
+             # num_decoding_left_chunks=-1,
+             # simulate_streaming=False
         )
         asr_end = time.time()
         print(f"Engine: ASR took {asr_end - asr_start:.2f}s.")

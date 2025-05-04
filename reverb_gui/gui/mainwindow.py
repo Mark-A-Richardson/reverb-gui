@@ -6,14 +6,15 @@ Hosts the primary user interface components like drag-drop area, settings, progr
 # --- Imports (Added QWidget, QVBoxLayout, QPlainTextEdit) ---
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QPlainTextEdit,
-    QGroupBox, QFormLayout, QComboBox, QSpinBox, QDoubleSpinBox, QLabel
+    QComboBox, QSpinBox, QDoubleSpinBox, QLabel,
+    QToolButton, QFrame, QSizePolicy, QGridLayout
 )
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import Qt, Slot, QThreadPool
 from .widgets.drop_zone import DropZone
 from .workers.transcription_worker import TranscriptionWorker, WorkerSignals
 from ..utils.formatting import format_transcript_lines
 import pathlib
-from typing import List, Tuple, Any
+from typing import List, Dict, Tuple, Any
 
 
 class MainWindow(QMainWindow):
@@ -41,6 +42,10 @@ class MainWindow(QMainWindow):
 
         # Create and add the DropZone
         self.drop_zone = DropZone()
+        self.drop_zone.fileDropped.connect(self._handle_file_drop)
+        # Set fixed height and expanding horizontal policy for DropZone
+        self.drop_zone.setFixedHeight(150) 
+        self.drop_zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout.addWidget(self.drop_zone, stretch=1)  # Give it some stretch factor
 
         # --- ASR Settings GroupBox (Added) ---
@@ -64,85 +69,194 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_container)
         # --- End Layout Setup ---
 
-        # Connect the signal from the drop zone to our handler slot
-        self.drop_zone.fileDropped.connect(self._handle_file_drop)
-
     def _setup_asr_settings_widgets(self, parent_layout: QVBoxLayout) -> None:
-        """Creates and adds the ASR settings group box and widgets."""
-        asr_group_box = QGroupBox("ASR Settings")
-        form_layout = QFormLayout()
+        """Creates and adds the ASR settings collapsible section and widgets."""
+        # Tooltip texts (ensure newlines are escaped for JSON: \\n)
+        tooltips: Dict[str, str] = {
+            "mode": "Selects the ASR decoding algorithm.",
+            "beam_size": "Max hypotheses kept during beam search.\nLarger = potentially better accuracy but slower processing.",
+            "length_penalty": "Adjusts preference for longer/shorter sentences.\nPositive values favor longer, negative values favor shorter.\n(Used in 'attention' and 'joint_decoding' modes).",
+            "blank_penalty": "Penalty applied to the CTC blank symbol to discourage silence/stalls.\n(Used in modes involving CTC).",
+            "ctc_weight": "Weight given to the CTC score component.\n(Used in 'attention_rescoring' and 'joint_decoding' modes).",
+            "reverse_weight": "Weight given to the right-to-left decoder component.\nHelps improve punctuation/end-of-sentence accuracy.\n(Used in 'attention_rescoring' mode).",
+            "verbatimicity": "Controls output strictness (e.g., number formatting, punctuation).\n1.0 = most verbatim/raw, lower values allow more normalization."
+        }
 
-        # Mode
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["ctc_prefix_beam_search", "attention_rescoring"])
-        form_layout.addRow(QLabel("Mode:"), self.mode_combo)
+        # --- Collapsible Section Setup ---
+        self.asr_settings_toggle_button = QToolButton()
+        self.asr_settings_toggle_button.setText("ASR Settings")
+        self.asr_settings_toggle_button.setCheckable(True)
+        self.asr_settings_toggle_button.setChecked(False) # Start collapsed
+        self.asr_settings_toggle_button.setStyleSheet("QToolButton { border: none; }")
+        self.asr_settings_toggle_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.asr_settings_toggle_button.setArrowType(Qt.ArrowType.RightArrow) # Start with right arrow
+        # Connect the 'toggled' signal instead of 'pressed'
+        self.asr_settings_toggle_button.toggled.connect(self._toggle_asr_settings_visibility)
+        parent_layout.addWidget(self.asr_settings_toggle_button)
+
+        # Frame to hold the settings, initially hidden
+        self.asr_settings_container = QFrame()
+        self.asr_settings_container.setFrameShape(QFrame.Shape.StyledPanel)
+        self.asr_settings_container.setVisible(False)
+        self.asr_settings_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Use QGridLayout for 2-column layout
+        grid_layout = QGridLayout()
+        # Set stretch factors: Give columns 1 & 3 priority for horizontal space
+        grid_layout.setColumnStretch(1, 1)
+        grid_layout.setColumnStretch(3, 1)
+        self.asr_settings_container.setLayout(grid_layout) # Set grid layout for the container
+        parent_layout.addWidget(self.asr_settings_container)
+        # --- End Collapsible Section Setup ---
+
+        # Mode (Spans 3 columns)
+        self.mode_label = QLabel("Mode:")
+        self.mode_label.setToolTip(tooltips["mode"])
+        self.mode_combo = QComboBox() 
+        modes = [
+            "ctc_greedy_search",
+            "ctc_prefix_beam_search",
+            "attention",
+            "attention_rescoring",
+            "joint_decoding"
+        ]
+        for display_name, internal_id in [(mode, mode) for mode in modes]: 
+            self.mode_combo.addItem(display_name, internal_id) # Store internal ID as data
+        self.mode_combo.setCurrentIndex(3) # Default to 'Attention Rescoring'
+        self.mode_combo.setToolTip(tooltips["mode"])
+        self.mode_combo.currentIndexChanged.connect(self._update_asr_param_state)
+        grid_layout.addWidget(self.mode_label, 0, 0)       # Row 0, Col 0
+        grid_layout.addWidget(self.mode_combo, 0, 1, 1, 3) # Row 0, starting Col 1, span 1 row, span 3 columns
+
+        # --- Column 1 (Left) ---
+        
+        # Verbatimicity (Moved to Row 1, Col 0/1)
+        self.verbatimicity_label = QLabel("Verbatimicity:")
+        self.verbatimicity_label.setToolTip(tooltips["verbatimicity"])
+        self.verbatimicity_spin = QDoubleSpinBox() 
+        self.verbatimicity_spin.setRange(0.0, 1.0) 
+        self.verbatimicity_spin.setDecimals(2)
+        self.verbatimicity_spin.setSingleStep(0.05) 
+        self.verbatimicity_spin.setValue(1.0) 
+        self.verbatimicity_spin.setToolTip(tooltips["verbatimicity"])
+        grid_layout.addWidget(self.verbatimicity_label, 1, 0) # Row 1, Col 0
+        grid_layout.addWidget(self.verbatimicity_spin, 1, 1)   # Row 1, Col 1
 
         # Beam Size
-        self.beam_size_spin = QSpinBox()
-        self.beam_size_spin.setRange(1, 50) # Reasonable range
-        self.beam_size_spin.setValue(10) # Default from engine
-        form_layout.addRow(QLabel("Beam Size:"), self.beam_size_spin)
+        self.beam_size_label = QLabel("Beam Size:")
+        self.beam_size_label.setToolTip(tooltips["beam_size"])
+        self.beam_size_spin = QSpinBox() 
+        self.beam_size_spin.setRange(1, 30) # Adjusted range
+        self.beam_size_spin.setValue(10)
+        self.beam_size_spin.setToolTip(tooltips["beam_size"])
+        grid_layout.addWidget(self.beam_size_label, 2, 0) # Row 2, Col 0
+        grid_layout.addWidget(self.beam_size_spin, 2, 1)   # Row 2, Col 1
 
         # Length Penalty
-        self.length_penalty_spin = QDoubleSpinBox()
-        self.length_penalty_spin.setRange(-10.0, 10.0)
+        self.length_penalty_label = QLabel("Length Penalty:")
+        self.length_penalty_label.setToolTip(tooltips["length_penalty"])
+        self.length_penalty_spin = QDoubleSpinBox() 
+        self.length_penalty_spin.setRange(-2.0, 2.0) # Adjusted range
         self.length_penalty_spin.setDecimals(2)
-        self.length_penalty_spin.setSingleStep(0.1)
-        self.length_penalty_spin.setValue(0.0) # Default from engine
-        form_layout.addRow(QLabel("Length Penalty:"), self.length_penalty_spin)
+        self.length_penalty_spin.setSingleStep(0.05) 
+        self.length_penalty_spin.setValue(0.0) 
+        self.length_penalty_spin.setToolTip(tooltips["length_penalty"])
+        grid_layout.addWidget(self.length_penalty_label, 3, 0) # Row 3, Col 0
+        grid_layout.addWidget(self.length_penalty_spin, 3, 1)   # Row 3, Col 1
 
-        # CTC Weight (Relevant for attention_rescoring)
+        # --- Column 2 (Right) --- 
+
+        # CTC Weight
         self.ctc_weight_label = QLabel("CTC Weight:")
-        self.ctc_weight_spin = QDoubleSpinBox()
-        self.ctc_weight_spin.setRange(0.0, 1.0)
-        self.ctc_weight_spin.setDecimals(2)
+        self.ctc_weight_label.setToolTip(tooltips["ctc_weight"])
+        self.ctc_weight_spin = QDoubleSpinBox() 
+        self.ctc_weight_spin.setRange(0.0, 1.0) 
+        self.ctc_weight_spin.setDecimals(2) 
         self.ctc_weight_spin.setSingleStep(0.05)
-        self.ctc_weight_spin.setValue(0.1) # Default from engine
-        form_layout.addRow(self.ctc_weight_label, self.ctc_weight_spin)
+        self.ctc_weight_spin.setValue(0.1) 
+        self.ctc_weight_spin.setToolTip(tooltips["ctc_weight"])
+        grid_layout.addWidget(self.ctc_weight_label, 1, 2) # Row 1, Col 2
+        grid_layout.addWidget(self.ctc_weight_spin, 1, 3)   # Row 1, Col 3
 
-        # Reverse Weight (Relevant for attention_rescoring)
+        # Reverse Weight
         self.reverse_weight_label = QLabel("Reverse Weight:")
-        self.reverse_weight_spin = QDoubleSpinBox()
-        self.reverse_weight_spin.setRange(0.0, 1.0)
-        self.reverse_weight_spin.setDecimals(2)
+        self.reverse_weight_label.setToolTip(tooltips["reverse_weight"])
+        self.reverse_weight_spin = QDoubleSpinBox() 
+        self.reverse_weight_spin.setRange(0.0, 0.5) 
+        self.reverse_weight_spin.setDecimals(2) 
         self.reverse_weight_spin.setSingleStep(0.05)
-        self.reverse_weight_spin.setValue(0.0) # Default from engine
-        form_layout.addRow(self.reverse_weight_label, self.reverse_weight_spin)
+        self.reverse_weight_spin.setValue(0.0) 
+        self.reverse_weight_spin.setToolTip(tooltips["reverse_weight"])
+        grid_layout.addWidget(self.reverse_weight_label, 2, 2) # Row 2, Col 2
+        grid_layout.addWidget(self.reverse_weight_spin, 2, 3)   # Row 2, Col 3
 
         # Blank Penalty
-        self.blank_penalty_spin = QDoubleSpinBox()
-        self.blank_penalty_spin.setRange(0.0, 10.0)
-        self.blank_penalty_spin.setDecimals(2)
-        self.blank_penalty_spin.setSingleStep(0.1)
-        self.blank_penalty_spin.setValue(0.0) # Default from engine
-        form_layout.addRow(QLabel("Blank Penalty:"), self.blank_penalty_spin)
+        self.blank_penalty_label = QLabel("Blank Penalty:")
+        self.blank_penalty_label.setToolTip(tooltips["blank_penalty"])
+        self.blank_penalty_spin = QDoubleSpinBox() 
+        self.blank_penalty_spin.setRange(0.0, 2.0) # Adjusted range
+        self.blank_penalty_spin.setDecimals(2) 
+        self.blank_penalty_spin.setSingleStep(0.05) 
+        self.blank_penalty_spin.setValue(0.0) 
+        self.blank_penalty_spin.setToolTip(tooltips["blank_penalty"])
+        grid_layout.addWidget(self.blank_penalty_label, 3, 2) # Row 3, Col 2
+        grid_layout.addWidget(self.blank_penalty_spin, 3, 3)   # Row 3, Col 3
 
-        # Verbatimicity
-        self.verbatimicity_spin = QDoubleSpinBox()
-        self.verbatimicity_spin.setRange(0.0, 1.0)
-        self.verbatimicity_spin.setDecimals(2)
-        self.verbatimicity_spin.setSingleStep(0.1)
-        self.verbatimicity_spin.setValue(1.0) # Default from engine was 0.5, but 1.0 seems more standard
-        form_layout.addRow(QLabel("Verbatimicity:"), self.verbatimicity_spin)
+        # Initial setup of enabled/disabled state based on default mode
+        self._update_asr_param_state()
 
-        # Set layout for group box
-        asr_group_box.setLayout(form_layout)
-        parent_layout.addWidget(asr_group_box, stretch=0) # No stretch for settings
+    def _get_asr_params(self) -> Dict[str, Any]:
+        """Retrieves the current ASR parameters from the GUI widgets."""
+        # Determine device based on checkbox state
+        device = "cpu" # Default to CPU
 
-        # Connect mode change signal
-        self.mode_combo.currentIndexChanged.connect(self._update_asr_param_widgets)
-        # Initial update
-        self._update_asr_param_widgets()
+        # --- Get ASR parameters ---
+        return {
+            "mode": self.mode_combo.currentText(),
+            "device": device, # Map checkbox to device string
+            "beam_size": self.beam_size_spin.value(),
+            "length_penalty": self.length_penalty_spin.value(),
+            "ctc_weight": self.ctc_weight_spin.value(),
+            "reverse_weight": self.reverse_weight_spin.value(),
+            "blank_penalty": self.blank_penalty_spin.value(),
+            "verbatimicity": self.verbatimicity_spin.value(),
+        }
+        # --- End Get ASR parameters ---
 
-    def _update_asr_param_widgets(self) -> None:
-        """Enables/disables widgets based on the selected ASR mode."""
+    @Slot(bool) # Connected to the 'toggled' signal
+    def _toggle_asr_settings_visibility(self, is_checked: bool) -> None:
+        """Shows/hides the ASR settings container when the toggle button is clicked."""
+        # Set visibility based on the button's checked state
+        self.asr_settings_container.setVisible(is_checked)
+        # Update arrow direction
+        arrow = Qt.ArrowType.DownArrow if is_checked else Qt.ArrowType.RightArrow
+        self.asr_settings_toggle_button.setArrowType(arrow)
+
+    def _update_asr_param_state(self) -> None:
+        """Enables/disables ASR parameter widgets and labels based on the selected mode, following the matrix in reverb-gui_asr_parameters.md."""
         selected_mode = self.mode_combo.currentText()
-        is_rescoring_mode = (selected_mode == "attention_rescoring")
+        beam_enabled = selected_mode in ["ctc_prefix_beam_search", "attention", "attention_rescoring", "joint_decoding"]
+        length_penalty_enabled = selected_mode in ["attention", "joint_decoding"]
+        blank_penalty_enabled = selected_mode in ["ctc_prefix_beam_search", "attention_rescoring", "joint_decoding"]
+        ctc_weight_enabled = selected_mode in ["attention_rescoring", "joint_decoding"]
+        reverse_weight_enabled = selected_mode == "attention_rescoring"
 
-        self.ctc_weight_label.setEnabled(is_rescoring_mode)
-        self.ctc_weight_spin.setEnabled(is_rescoring_mode)
-        self.reverse_weight_label.setEnabled(is_rescoring_mode)
-        self.reverse_weight_spin.setEnabled(is_rescoring_mode)
+        self.beam_size_label.setEnabled(beam_enabled)
+        self.beam_size_spin.setEnabled(beam_enabled)
+
+        self.length_penalty_label.setEnabled(length_penalty_enabled)
+        self.length_penalty_spin.setEnabled(length_penalty_enabled)
+
+        self.blank_penalty_label.setEnabled(blank_penalty_enabled)
+        self.blank_penalty_spin.setEnabled(blank_penalty_enabled)
+
+        self.ctc_weight_label.setEnabled(ctc_weight_enabled)
+        self.ctc_weight_spin.setEnabled(ctc_weight_enabled)
+
+        self.reverse_weight_label.setEnabled(reverse_weight_enabled)
+        self.reverse_weight_spin.setEnabled(reverse_weight_enabled)
+
+        # Mode, Verbatimicity are always enabled
+        # (No need to explicitly setEnabled(True) unless they might be disabled elsewhere)
 
     def _handle_file_drop(self, file_path: pathlib.Path) -> None:
         """Handles the fileDropped signal from the DropZone widget.
@@ -162,15 +276,7 @@ class MainWindow(QMainWindow):
         self.drop_zone.setText("Processing... Please Wait")  # Update text
 
         # --- Get ASR parameters from GUI (Added) ---
-        asr_params = {
-            "mode": self.mode_combo.currentText(),
-            "beam_size": self.beam_size_spin.value(),
-            "length_penalty": self.length_penalty_spin.value(),
-            "ctc_weight": self.ctc_weight_spin.value(),
-            "reverse_weight": self.reverse_weight_spin.value(),
-            "blank_penalty": self.blank_penalty_spin.value(),
-            "verbatimicity": self.verbatimicity_spin.value(),
-        }
+        asr_params = self._get_asr_params()
         # --- End Get ASR parameters ---
 
         # Create worker and signals
@@ -231,6 +337,3 @@ class MainWindow(QMainWindow):
         # Reset text only if there wasn't an error message set previously
         if "Error" not in self.drop_zone.text():
             self.drop_zone.setText("Drag and Drop Audio/Video File Here")
-
-    # TODO: Add methods for settings panel integration
-    # TODO: Add methods for progress bar updates
